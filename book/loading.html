@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <meta charset="utf-8">
+        <title>
+            <replace title/>
+        </title>
+    </head>
+    <body>
+        <h1>
+            <replace function/>
+        </h1>
+        <pre>
+            <code id="description">
+                    <replace description/>
+            </code>
+        </pre>
+        <button type="button" onclick=javascript:begin_edit()>编辑</button>
+
+        <h2>快速跳转</h2>
+        <p id="group">
+            <replace address />
+        </p>
+        <button type="button">注册</button>
+
+        <h2>参数列表</h2>
+        <replace para_list/>
+        <button>更新</button>
+
+        <h2>相关元素</h2>
+        <table border="2" cellspacing="0">
+            <thead>
+                <tr>
+                    <th align="center">当前函数</th>
+                    <th>
+                        <replace function_full/>
+                    </th>
+                    <th><textarea id="relate" rows="1" cols="1"></textarea></th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td align="center">父函数</td>
+                    <td></td>
+                    <td><button type="button">链接</button></td>
+                </tr>
+                <tr>
+                    <td align="center">子函数</td>
+                    <td></td>
+                    <td><button type="button">链接</button></td>
+                </tr>
+                <tr>
+                    <td align="center">结构体</td>
+                    <td></td>
+                    <td><button type="button">链接</button></td>
+                </tr>
+                <tr>
+                    <td align="center">全局变量</td>
+                    <td></td>
+                    <td><button type="button">链接</button></td>
+                </tr>
+                <tr>
+                    <td align="center">宏</td>
+                    <td></td>
+                    <td><button type="button"><s>链接</s></button></td>
+                </tr>
+            </tbody>
+        </table>
+
+        <h2>函数详情</h2>
+        <pre>
+            <code>
+                <replace content/>
+            </code>
+        </pre>
+        <button>修改</button>
+    </body>
+
+    <script>
+        <replace ME/>
+        function begin_edit() {
+            window.location.href="http://localhost:8000/document^show=" + url_me + "^editing";
+        }
+        function finish_edit() {
+            const trans_description = document.getElementById("description_area").value.replace(/\n/g, "%0A");
+            window.location.href="http://localhost:8000/document^show=" + url_me + "^editing=" + trans_description;
+        }
+    </script>
+</html>
