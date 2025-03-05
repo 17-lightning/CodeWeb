@@ -67,12 +67,13 @@ public class LTNServer {
     public static void reply_html_file(BufferedWriter bufferedWriter, String filepath) {
         try {
             String file = "./console.html";
-            FileReader reader = new FileReader(file);
-            char[] ch = new char[5000];
-            reader.read(ch);
-            for (char c:ch) {
-                bufferedWriter.write(c);
+            char[] buffer = new char[1024];
+            int number;
+            InputStreamReader isr = new InputStreamReader(new FileInputStream(file), "utf-8");
+            while ((number = isr.read(buffer)) != -1) {
+                bufferedWriter.write(buffer, 0, number);
             }
+            isr.close();
         } catch (Exception e) {
             e.printStackTrace();
         }
@@ -81,7 +82,7 @@ public class LTNServer {
         try {
             // 指定程序路径与参数
             ProcessBuilder builder = new ProcessBuilder(
-                "D:\\PP\\PJ03\\main.exe",
+                ".\\main.exe",
                 args
             );
 
