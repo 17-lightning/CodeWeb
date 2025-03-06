@@ -60,10 +60,10 @@ int str_replace(char *line, char a, char b)
     return 0;
 }
 
-int copy_file(char *file1, char *file2)
+int copy_file(char *src, char *dst)
 {
     char line[LINE_LENGTH];
-    sprintf(line, "copy \"%s\" \"%s\"\n", file1, file2);
+    sprintf(line, "copy \"%s\" \"%s\"\n", src, dst);
     // Windows的CP只吃\不吃/
     str_replace(line, '/', '\\');
     PRINT("executing cmd : [%s]\n", line);
@@ -287,6 +287,27 @@ int has_key(char *key)
     return 0;
 }
 
+int set_append(char *append)
+{
+    int i;
+    char *list[] = {
+        "add_child",
+        "add_parent",
+        "add_struct",
+        "add_global",
+        "add_macro",
+        "add_else",
+        NULL,
+    };
+
+    for (i = 0; list[i]; i++) {
+        if (get_value(list[i])) {
+            sprintf(append, "&%s=%s", list[i], get_value(list[i]));
+        }
+    }
+    return 0;
+}
+
 int document_search(char *value)
 {
     char line[LINE_LENGTH];
@@ -295,6 +316,7 @@ int document_search(char *value)
     FILE *book = fopen("./book/database", "rb");
     FILE *console;
     char target[LINE_LENGTH];
+    char append[LINE_LENGTH];
     char *function;
 
     record_element(value);
@@ -305,6 +327,7 @@ int document_search(char *value)
     strcpy(target, get_value("target"));
     str_replace(target, '/',  '-');
     str_replace(target, '\\',  '+');
+    set_append(append);
 
     copy_file("./book/document.html", CONSOLE);
     console = fopen(CONSOLE, "ab");
@@ -312,12 +335,12 @@ int document_search(char *value)
     while (fgets(line, LINE_LENGTH, book)) {
         if (strstr(line, target)) {
             if (strchr(line, '+')) {
-                sprintf(output, "<a href=\"http:/document-show?target=%s\" traget=\"_blank\">", line);
+                sprintf(output, "<a href=\"http:/document-show?target=%s%s\" traget=\"_blank\">", line, append);
                 str_replace(line, '-', '/');
                 strcat(output, line);
                 strcat(output, "</a><br>\n");
             } else {
-                sprintf(output, "<a href=\"http:/document-show?target=%s\" traget=\"_blank\">%s</a><br>\n", line, line);
+                sprintf(output, "<a href=\"http:/document-show?target=%s%s\" traget=\"_blank\">%s</a><br>\n", line, append, line);
             }
             fprintf(console, "%s", output);
         }
@@ -348,10 +371,51 @@ int document_search(char *value)
         if (is_documented(line)) {
             continue;
         }
-        fprintf(console, "<a href=\"http:/document-register?target=%s\" target=\"_blank\">%s+%s</a><br>\n", line, output, target);
+        fprintf(console, "<a href=\"http:/document-register?target=%s%s\" target=\"_blank\">%s+%s</a><br>\n", line, append, output, target);
     }
     fclose(console);
     fclose(cmd);
+    return 0;
+}
+
+int str_to_html(char *line)
+{
+    char output[LINE_LENGTH * 2] = {0};
+    int i;
+    for (i = 0; line[i]; i++) {
+        if (line[i] == '&') strcat(output, "&amp;");
+        else if (line[i] == '<') strcat(output, "&lt;");
+        else if (line[i] == '>') strcat(output, "&gt;");
+        else if (line[i] == '\t') strcat(output, "&emsp;");
+        else if (line[i] == '\"') strcat(output, "&quot;");
+        else if (line[i] == '\'') strcat(output, "&#39;");
+        else output[strlen(output)] = line[i];
+    }
+    strcpy(line, output);
+    return 0;
+}
+
+int turn_to_html_mode(void)
+{
+    FILE *console = fopen(CONSOLE, "rb");
+    FILE *fp = fopen(SWAP_FILE, "wb");
+    char line[LINE_LENGTH];
+    while (fgets(line, LINE_LENGTH, console)) {
+        WRITE("%s", line);
+        if (strstr(line, "<code id=\"description\">") || strstr(line, "<code id=\"content\">")) {
+            while (fgets(line, LINE_LENGTH, console) && !strstr(line, "</code>")) {
+                if (strstr(line, "<textarea id=\"")) {
+                    break;
+                }
+                str_to_html(line);
+                WRITE("%s", line);
+            }
+            WRITE("%s", line);
+        }
+    }
+    fclose(fp);
+    fclose(console);
+    copy_file(SWAP_FILE, CONSOLE);
     return 0;
 }
 
@@ -455,7 +519,7 @@ int coding_document(char *value)
             if (swap_already == 0 && is_target_function(line, strchr(g_document, '+') + 1)) {
                 remove_enter(value);
                 fprintf(swap, "%s\n", value);
-                while (fgets(line, LINE_LENGTH, src) && strncmp(line, "};", 2)) ;
+                while (fgets(line, LINE_LENGTH, src) && line[0] != '}') ;
                 swap_already = 1;
             } else {
                 fprintf(swap, "%s", line);
@@ -498,6 +562,82 @@ int coding_document(char *value)
     return 0;
 }
 
+int paraing_document(void)
+{
+    int i;
+    char line[LINE_LENGTH];
+    char temp[LINE_LENGTH];
+    char *value;
+    FILE *book;
+    FILE *fp;
+    show_all_params();
+    for (i = 0; i < 10; i++) {
+        sprintf(temp, "para_%d", i);
+        DEBUG PRINT("para_%d is [%s]\n", i, get_value(temp));
+        if (value = get_value(temp)) {
+            DEBUG PRINT("updating param_%d 's description: %s", i, value);
+            sprintf(temp, "<td id=\"para_%d\">", i);
+            sprintf(line, "./book/%s.html", g_document);
+            book = fopen(line, "rb");
+            fp = fopen(SWAP_FILE, "wb");
+            while (fgets(line, LINE_LENGTH, book)) {
+                fprintf(fp, "%s", line);
+                if (strstr(line, temp)) {
+                    remove_enter(value);
+                    fprintf(fp, "%s\n", value);
+                    while (fgets(line, LINE_LENGTH, book) && !strstr(line, "</td>")) ;
+                    fprintf(fp, "%s", line);
+                }
+            }
+            fclose(book);
+            fclose(fp);
+            sprintf(line, "./book/%s.html", g_document);
+            copy_file(SWAP_FILE, line);
+        }
+    }
+    return 0;
+}
+
+int relating_document(void)
+{
+    char line[LINE_LENGTH];
+    char temp[LINE_LENGTH];
+    int i;
+    FILE *book;
+    FILE *swap;
+    char *relate_list[] = {
+        "add_child",
+        "add_parent",
+        "add_struct",
+        "add_global",
+        "add_macro",
+        "add_else",
+        NULL,
+    };
+    for (i = 0; relate_list[i]; i++) {
+        if (!get_value(relate_list[i])) continue;
+        sprintf(line, "./book/%s.html", get_value(relate_list[i]));
+        sprintf(temp, "id=\"%s\"", relate_list[i] + 4);
+        DEBUG PRINT("is now relating [%s] = [%s]\n", temp, get_value(relate_list[i]));
+        book = fopen(line, "rb");
+        swap = fopen(SWAP_FILE, "wb");
+        IF_ERR_RETURN(book == NULL, "Cannot open target file[%s]", line);
+        while (fgets(line, LINE_LENGTH, book)) {
+            fprintf(swap, "%s", line);
+            if (strstr(line, temp)) {
+                DEBUG PRINT("relating [%s] to [%s:%s]\n", g_document, get_value(relate_list[i]), relate_list[i] + 4);
+                fprintf(swap, "%s\n", g_document);
+            }
+        }
+        fclose(swap);
+        fclose(book);
+        sprintf(line, "./book/%s.html", get_value(relate_list[i]));
+        copy_file(SWAP_FILE, line);
+    }
+    
+    return 0;
+}
+
 // 只是很普通的展示文档 —— 但是在这里你可以对文档进行操作
 int document_show(char *value)
 {
@@ -531,15 +671,17 @@ int document_show(char *value)
         editing_document(get_value("edit"));
     } else if (has_key("code")) {
         coding_document(get_value("code"));
-    } else if (has_key("ret")) {
-        // 
-    } else if (has_key("add_child")) {
-        // 
     } else {
+        // 把参数修改放这里了，因为……好像没什么好的方法has_key去判断para_X
+        paraing_document();
+        // 增加联系……也放这里了
+        relating_document();
         // 什么参数都没有，就只是普通的展示
         sprintf(line, "./book/%s.html", target);
         copy_file(line, CONSOLE);
     }
+    turn_to_html_mode();
+
     return 0;
 }
 
@@ -553,7 +695,7 @@ int document_register_function(void)
     char definition[LINE_LENGTH] = {0}; // 函数定义
     char *index;
     char *para;
-    int para_number = 0;
+    int para_number = 1;
     char *src_file; // 文件名
     char *function; // 函数名
 
@@ -569,6 +711,7 @@ int document_register_function(void)
     str_replace(src_file, '/', '-');
     str_replace(src_file, '\\', '-');
     sprintf(filepath, "./book/%s+%s.html", get_value("target"), function);
+    sprintf(g_document, "%s+%s", src_file, function);
     DEBUG PRINT("is now registering [%s] : [%s]\n", get_value("target"), function);
     fp = fopen(filepath, "wb");
     IF_ERR_RETURN(fp == NULL, "register [%s+%s] failed. Cannot open document file [%s]", src_file, function, filepath);
@@ -633,13 +776,13 @@ int document_register_function(void)
                 WRITE("<td>\n");
                 WRITE("%s\n", index + 1);
                 WRITE("</td>\n");
-                WRITE("<td id=\"para_%d\">\n", para_number++);
-                WRITE("</td>");
-                WRITE("<td>\n");
-                WRITE("<button type=\"button\">更新</button>\n");
+                WRITE("<td id=\"para_%d\">\n", para_number);
                 WRITE("</td>\n");
+                // WRITE("<button type=\"button\">更新</button>\n");
+                WRITE("<td><button type=\"button\" onclick=javascript:edit_para(%d)>更新</button></td>\n", para_number);
                 WRITE("</tr>\n");
                 index = para;
+                para_number++;
             }
         } else if (strstr(line, "id=\"script\"")) {
             WRITE("var url_me = \"%s+%s\";\n", src_file, function);
@@ -649,78 +792,17 @@ int document_register_function(void)
             while (fgets(line, LINE_LENGTH, src) && *line != '}') {
                 WRITE("%s", line);
             }
-            WRITE("};\n");
+            WRITE("}\n");
         }
     }
     fclose(src);
     fclose(ref);
     fclose(fp);
     copy_file(filepath, CONSOLE);
-    sprintf(line, "%s+%s\n", src_file, function);
-    append_file("./book/database", line);
-    //     if (!strstr(line, "<replace")) {
-    //         WRITE("%s", line);
-    //     } else {
-    //         if (strstr(line, "<replace title")) {
-    //             WRITE("%s\n", function);
-    //         } else if (strstr(line, "<replace function/")) {
-    //             WRITE("%s\n", definition);
-    //         } else if (strstr(line, "<replace description")) {
-    //             WRITE("请输入函数描述信息\n");
-    //         } else if (strstr(line, "<replace para_list")) {
-    //             strcpy(line, definition);
-    //             index = strchr(line, '(');
-    //             while (*index != ' ') index--;
-    //             *index = 0;
-    //             WRITE("<table border=\"2\" cellspacing=\"0\">\n");
-    //             WRITE("\t<thead>\n");
-    //             WRITE("\t\t<tr>\n");
-    //             WRITE("\t\t\t<th align=\"center\">%s</th>\n", line);
-    //             WRITE("\t\t\t<th>%s</th>\n", index + 1);
-    //             WRITE("\t\t</tr>\n");
-    //             WRITE("\t</thead>\n");
-    //             WRITE("\t<tbody>\n");
-
-    //             WRITE("\t\t<tr>\n");
-    //             WRITE("\t\t\t<th>(返回值)%s</th>\n", line);
-    //             WRITE("\t\t\t<th><input id=\"ret\" size=\"50\"/></th>\n");
-    //             WRITE("\t\t</tr>\n");
-    //             index = strchr(index + 1, '(');
-    //             while (strchr(index + 1, ',') || strchr(index + 1, ')')) {
-    //                 para = strchr(index + 1, ',') ? strchr(index + 1, ',') : strchr(index + 1, ')');
-    //                 *para = 0;
-    //                 WRITE("\t\t<tr>\n");
-    //                 WRITE("\t\t\t<th>%s</th>\n", index + 1);
-    //                 WRITE("\t\t\t<th><input id=\"para_%d\" size=\"50\"/></th>\n", para_number++);
-    //                 WRITE("\t\t</tr>\n");
-    //                 index = para;
-    //             }
-    //             WRITE("\t</tobdy>\n");
-    //             WRITE("</table>\n");
-    //         } else if (strstr(line, "<replace content")) {
-    //             WRITE("%s\n", definition);
-    //             while (fgets(line, LINE_LENGTH, src) && *line != '}') {
-    //                 WRITE("%s", line);
-    //             }
-    //             WRITE("};\n");
-    //         } else if (strstr(line, "<replace function_full")) {
-    //             WRITE("%s", definition);
-    //         } else if (strstr(line, "<replace address")) {
-    //             WRITE("%s<br>\n", filepath);
-    //         } else if (strstr(line, "<replace ME/>")) {
-    //             sprintf(line, "var url_me = \"%s+%s\";\n", filepath, function);
-    //             str_replace(line, '/', '-');
-    //             WRITE("%s", line);
-    //         }
-    //     }
-    // }
-    // fclose(src);
-    // fclose(book);
-    // fclose(ref);
-    // sprintf(line, "./book/%s.html", value);
-    // copy_file(line, CONSOLE);
-    // append_file("./book/database", value);
-    // append_file("./book/database", "\n");
+    sprintf(line, "%s\n", g_document);
+    if (!is_documented(g_document)) append_file("./book/database", line);
+    relating_document();
+    turn_to_html_mode();
     return 0;
 
 }
