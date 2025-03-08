@@ -62,7 +62,7 @@
                     </th>
                 </tr>
             </thead>
-            <tbody>
+            <tbody id="relate_table">
                 <tr>
                     <td align="center">父函数</td>
                     <td id="parent">
@@ -119,10 +119,10 @@
     <script id="script">
         function trans_content(text) {
             return text
+                .replace(/%/g, "%25")
                 .replace(/\n/g, "%0A")
                 .replace(/&/g, "%26")
                 .replace(/\?/g, "%3F")
-                .replace(/%/g, "%25")
                 .replace(/=/g, "%3D");
         }
         function begin_edit() {

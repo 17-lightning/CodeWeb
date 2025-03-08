@@ -9,7 +9,7 @@
 
 #define CONSOLE "./console.html"
 #define SWAP_FILE "./swap.temp"
-#define LINE_LENGTH 300
+#define LINE_LENGTH 500
 #define CODE_PATH "."
 #define WRITE(info, ...) fprintf(fp, info, ##__VA_ARGS__);
 #define BREAKPOINT return quit_with_alert("breakpoint");
@@ -28,6 +28,17 @@ struct param_t {
 char g_document[LINE_LENGTH]; // 用于表示当前正在操作的文档是什么
 int g_param_count = 0; // 用于表示当前请求有几个参数
 struct param_t g_param_list[10]; // 用于存储请求参数，最大10个
+char *g_relate_list[] = {
+    "child",
+    "parent",
+    "struct",
+    "global",
+    "macro",
+    "else",
+    NULL,
+};
+struct param_t g_superlink[50]; // 用于存储超链接，最大50个，程序结束时需要释放
+int g_superlink_number = 0;
 
 // 移除行尾的换行符
 int remove_enter(char *line)
@@ -37,6 +48,16 @@ int remove_enter(char *line)
         line[i] = 0;
         i--;
     }
+    return 0;
+}
+
+// 移除行首的空格/tab
+int remove_front_space(char *line)
+{
+    char *index = line;
+    char temp[LINE_LENGTH];
+    while (*index == ' ' || *index == '\t') index++;
+    memmove(line, index, strlen(index) + 1);
     return 0;
 }
 
@@ -57,6 +78,18 @@ int str_replace(char *line, char a, char b)
     for (int i = 0; line[i] != 0; i++) {
         if (line[i] == a) line[i] = b;
     }
+    return 0;
+}
+
+// 替换字符串中指定的子字符串
+int str_replace_str(char *line, char *target, char *replace)
+{
+    char temp[LINE_LENGTH * 2];
+    char *ptr = strstr(line, target);
+    if (ptr == NULL) return 1;
+    *ptr = 0;
+    sprintf(temp, "%s%s%s", line, replace, ptr + strlen(target));
+    strcpy(line, temp);
     return 0;
 }
 
@@ -139,6 +172,23 @@ int is_function(char *line)
     return 1;
 }
 
+// 判断目标行中是否包含该元素，为避免识别到子字符串，规定其前后字符必须是 space * ( ) { } ; , \0
+int is_element(char *line, char *target)
+{
+    char *front;
+    char *rear;
+    if (!strstr(line, target)) return 0;
+    front = strstr(line, target);
+    rear = front + strlen(target);
+    if (line != front) {
+        if (*front != '(' && *front != ' ' && *front != '*' && *front != ' ' && *front != '\t') {
+            return 0;
+        }
+    }
+    if (*rear != '\0' && *rear != '\n' && *rear != '\r' && *rear != '(' && *rear != ')' && *rear != ';' && *rear != ',' && *rear != ' ' && *rear != '\t') return 0;
+    return 1;
+}
+
 int is_target_function(char *line, char *target)
 {
     char temp[LINE_LENGTH];
@@ -155,6 +205,8 @@ int is_documented(char *file)
 {
     FILE *fp = fopen("./book/database", "rb");
     char line[LINE_LENGTH];
+    if (file == NULL) return 0;
+    if (strlen(file) <= 1) return 0;
     while (fgets(line, LINE_LENGTH, fp)) {
         remove_enter(line);
         DDEBUG PRINT("comparing %s and %s (%d)\n", file, line, strcmp(file, line));
@@ -392,6 +444,110 @@ int str_to_html(char *line)
         else output[strlen(output)] = line[i];
     }
     strcpy(line, output);
+    return 0;
+}
+
+// 获取页面的描述信息
+int get_abstract(char *target, char *abstract)
+{
+    char line[LINE_LENGTH];
+    FILE *fp;
+    if (target == NULL || abstract == NULL) {
+        DEBUG PRINT("[get_abstract] invalid input.\n");
+        return -21;
+    }
+    if (!is_documented(target)) {
+        DEBUG PRINT("target[%s] is not instance.\n", target);
+        return -15;
+    }
+    sprintf(line, "./book/%s.html", target);
+    fp = fopen(line, "rb");
+    if (fp == NULL) {
+        DEBUG PRINT("open target document[%s] failed.", line);
+        return -2;
+    }
+    while (fgets(line, LINE_LENGTH, fp)) {
+        if (strstr(line, "<code id=\"description\">")) { // 取descrpition的第一行
+            fgets(line, LINE_LENGTH, fp);
+            if (!strstr(line, "</code>")) {
+                strcpy(abstract, line);
+                remove_enter(abstract);
+            }
+            fclose(fp);
+            return 0;
+        }
+    }
+    fclose(fp);
+    DEBUG PRINT("theres no description in document[%s]\n", target);
+    return -1;
+}
+
+// 在页面中寻找相关元素，并超链接化
+int apply_superlink(void)
+{
+    FILE *console;
+    FILE *fp;
+    char line[LINE_LENGTH * 2];
+    char description[LINE_LENGTH];
+    char *output;
+    int i;
+
+    console = fopen(CONSOLE, "rb");
+    fp = fopen(SWAP_FILE, "wb");
+    while (fgets(line, LINE_LENGTH, console)) {
+        WRITE("%s", line);
+        if (strstr(line, "<tbody id=\"relate_table\">")) {
+            while (fgets(line, LINE_LENGTH, console)) {
+                if (strstr(line, "</table>")) {
+                    WRITE("%s", line);
+                    break;
+                } else if (strchr(line, '<')) {
+                    WRITE("%s", line);
+                } else if (strlen(line) > 1) {
+                    remove_enter(line);
+                    remove_front_space(line);
+                    if (get_abstract(line, description) == 0) {
+                        g_superlink[g_superlink_number].key = malloc(LINE_LENGTH);
+                        g_superlink[g_superlink_number].value = malloc(LINE_LENGTH * 2);
+                        strcpy(g_superlink[g_superlink_number].key, line);
+                        sprintf(g_superlink[g_superlink_number].value, "<a href=\"http://localhost:8000/document-show?target=%s\" title=\"%s\" target=\"_blank\">%s</a>", line, description, strchr(line, '+') + 1);
+                        WRITE("%s<br>\n", g_superlink[g_superlink_number].value);
+                        g_superlink_number++;
+                    } else {
+                        WRITE("%s\n", line);
+                    }
+                } else {
+                    WRITE("%s\n", line);
+                }
+            }
+        }
+    }
+    fclose(fp);
+    fclose(console);
+    copy_file(SWAP_FILE, CONSOLE);
+    console = fopen(CONSOLE, "rb");
+    fp = fopen(SWAP_FILE, "wb");
+    while (fgets(line, LINE_LENGTH, console)) {
+        WRITE("%s", line);
+        if (strstr(line, "<code id=\"description\">") || strstr(line, "<code id=\"content\">")) {
+            while (fgets(line, LINE_LENGTH, console)) {
+                if (strstr(line, "</code>")) {
+                    WRITE("%s", line);
+                    break;
+                } else {
+                    DEBUG PRINT("is parsing content[%s]", line);
+                    for (i = 0; i < g_superlink_number; i++) {
+                        DEBUG PRINT("translating [%s] -> [%s]\n", g_superlink[i].key, g_superlink[i].value);
+                        str_replace_str(line, strchr(g_superlink[i].key, '+') + 1, g_superlink[i].value);
+                    }
+                    WRITE("%s", line);
+                }
+            }
+        }
+    }
+    fclose(fp);
+    fclose(console);
+    copy_file(SWAP_FILE, CONSOLE);
     return 0;
 }
 
@@ -681,7 +837,7 @@ int document_show(char *value)
         copy_file(line, CONSOLE);
     }
     turn_to_html_mode();
-
+    apply_superlink();
     return 0;
 }
 

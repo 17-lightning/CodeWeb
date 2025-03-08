@@ -4,4 +4,5 @@ clear
 clear
 rm main.exe
 gcc main.c -o main
-java LTNServer.java
+javac -encoding utf-8 LTNServer.java
+java LTNServer
