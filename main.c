@@ -228,6 +228,9 @@ int quit_with_alert(char *info)
     return 0;
 }
 
+// ↑ 通用
+// ↓ 专用
+
 int show_welcome_page(char *value)
 {
     return copy_file("./book/welcome.html", CONSOLE);
@@ -401,6 +404,7 @@ int document_search(char *value)
     fclose(book);
     // 接下来搜索其他可能的函数
     fprintf(console, "<p>其他可能的函数</p>\n");
+    fprintf(console, "<a href=\"http:/document-register?target=%s\" target=\"_blank\">%s(非函数注册)</a><br>\n", target, target);
     sprintf(line, "chcp 65001 && cd %s && findstr /s /c:\" %s(\" /c:\" *%s(\" *.c", CODE_PATH, target, target);
     DEBUG PRINT("cmd executing: [%s]\n", line);
     cmd = popen(line, "rb");
@@ -481,6 +485,45 @@ int get_abstract(char *target, char *abstract)
     fclose(fp);
     DEBUG PRINT("theres no description in document[%s]\n", target);
     return -1;
+}
+
+int record_superlink(char *file)
+{
+    char *filepath = file ? file : CONSOLE;
+    FILE *fp = fopen(filepath, "rb");
+    char line[LINE_LENGTH];
+    char description[LINE_LENGTH * 2];
+    int i;
+    int in_area = 0;
+
+    for (i = 0; i < g_superlink_number; i++) {
+        free(g_superlink[i].key);
+        free(g_superlink[i].value);
+    }
+    g_superlink_number = 0;
+
+    if (fp == NULL) {
+        DEBUG PRINT("Cannot open file [%s]\n", file);
+        return -2;
+    }
+
+    while (fgets(line, LINE_LENGTH, fp)) {
+        if (strstr(line, "<tbody id=\"relate_table\">")) in_area = 1;
+        else if (strstr(line, "</tbody>")) in_area = 0;
+        else {
+            remove_enter(line);
+            remove_front_space(line);
+            if (get_abstract(line, description) == 0) {
+                g_superlink[g_superlink_number].key = malloc(LINE_LENGTH);
+                g_superlink[g_superlink_number].value = malloc(LINE_LENGTH * 2);
+                strcpy(g_superlink[g_superlink_number].key, line);
+                sprintf(g_superlink[g_superlink_number].value, "<a href=\"http://localhost:8000/document-show?target=%s\" title=\"%s\" target=\"_blank\">%s</a>", line, description, strchr(line, '+') + 1);
+                DEBUG PRINT("load superlink[%d] : [%s] >> [%s]\n", g_superlink_number, line, g_superlink[g_superlink_number].value);
+                g_superlink_number++;
+            }
+        }
+    }
+    return 0;
 }
 
 // 在页面中寻找相关元素，并超链接化
@@ -765,31 +808,35 @@ int relating_document(void)
 {
     char line[LINE_LENGTH];
     char temp[LINE_LENGTH];
+    char *value;
     int i;
     FILE *book;
     FILE *swap;
-    char *relate_list[] = {
-        "add_child",
-        "add_parent",
-        "add_struct",
-        "add_global",
-        "add_macro",
-        "add_else",
-        NULL,
-    };
-    for (i = 0; relate_list[i]; i++) {
-        if (!get_value(relate_list[i])) continue;
-        sprintf(line, "./book/%s.html", get_value(relate_list[i]));
-        sprintf(temp, "id=\"%s\"", relate_list[i] + 4);
-        DEBUG PRINT("is now relating [%s]'[%s] = [%s]\n", g_document, temp, get_value(relate_list[i]));
-        book = fopen(line, "rb");
+
+    for (i = 0; g_relate_list[i]; i++) {
+        sprintf(temp, "add_%s", g_relate_list[i]);
+        if ((value = get_value(temp)) == NULL) continue;
+        if (!is_documented(value)) {
+            PRINT("target document [%s] not exist (database)\n");
+            return -21;
+        }
+        sprintf(temp, "./book/%s.html", value);
+        book = fopen(temp, "rb");
+        if (book == NULL) {
+            PRINT("target document [%s] not exist (fopen)");
+            return -2;
+        }
         swap = fopen(SWAP_FILE, "wb");
-        IF_ERR_RETURN(book == NULL, "Cannot open target file[%s]", line);
+        sprintf(temp, "<td id=\"%s\">", g_relate_list[i]);
+        DEBUG PRINT("is now relating [%s]'[%s] = [%s]\n", value, g_relate_list[i], g_document);
         while (fgets(line, LINE_LENGTH, book)) {
             fprintf(swap, "%s", line);
             if (strstr(line, temp)) {
                 while (fgets(line, LINE_LENGTH, book)) {
-                    if (strstr(line, "</td>")) {
+                    if (is_element(line, g_document)) {
+                        fprintf(swap, "%s", line);
+                        break;
+                    } else if (strstr(line, "</td>")) {
                         fprintf(swap, "%s\n", g_document);
                         fprintf(swap, "%s", line);
                         break;
@@ -800,35 +847,39 @@ int relating_document(void)
         }
         fclose(swap);
         fclose(book);
-        sprintf(line, "./book/%s.html", get_value(relate_list[i]));
+        sprintf(line, "./book/%s.html", value);
         copy_file(SWAP_FILE, line);
 
-        if (i == 0 || i == 1) { // 连接父子函数时会双向连接
+        // 如果连接的是父子函数，将会双向连接
+        if (strchr(g_document, '+') && (i == 0 || i == 1)) {
             sprintf(line, "./book/%s.html", g_document);
             book = fopen(line, "rb");
             swap = fopen(SWAP_FILE, "wb");
-            sprintf(temp, "<td id=\"%s\">", relate_list[!i] + 4); // 我是坏逼
+            IF_ERR_RETURN(book == NULL, "open current file[%s] failed", g_document); 
+            sprintf(temp, "<td id=\"%s\">", g_relate_list[!i]);
+            DEBUG PRINT("is now re-relating [%s]'[%s] = [%s]\n", g_document, g_relate_list[i], value);
             while (fgets(line, LINE_LENGTH, book)) {
                 fprintf(swap, "%s", line);
                 if (strstr(line, temp)) {
-                    DEBUG PRINT("is now re-relating [%s]'s[%s] = [%s]\n", get_value(relate_list[i]), temp, g_document);
                     while (fgets(line, LINE_LENGTH, book)) {
-                        if (strstr(line, "</td>")) {
-                            fprintf(swap, "%s\n", get_value(relate_list[i]));
+                        if (is_element(line, value)) {
+                            fprintf(swap, "%s", line);
+                            break;
+                        } else if (strstr(line, "</td>")) {
+                            fprintf(swap, "%s\n", value);
                             fprintf(swap, "%s", line);
                             break;
                         }
-                        fprintf(swap, "%s\n", line);
+                        fprintf(swap, "%s", line);
                     }
                 }
             }
-            fclose(swap);
             fclose(book);
+            fclose(swap);
             sprintf(line, "./book/%s.html", g_document);
             copy_file(SWAP_FILE, line);
         }
     }
-    
     return 0;
 }
 
@@ -868,14 +919,12 @@ int document_show(char *value)
     } else {
         // 把参数修改放这里了，因为……好像没什么好的方法has_key去判断para_X
         paraing_document();
-        // 增加联系……也放这里了
+        // 增加联系也放这里了
         relating_document();
         // 什么参数都没有，就只是普通的展示
         sprintf(line, "./book/%s.html", target);
         copy_file(line, CONSOLE);
     }
-    turn_to_html_mode();
-    apply_superlink();
     return 0;
 }
 
@@ -893,10 +942,11 @@ int document_register_function(void)
     char *src_file; // 文件名
     char *function; // 函数名
 
-    // 如果函数已经被注册过了，再次注册 = 更新，会保留用户写入的注释等信息
+    // 如果函数已经被注册过了，再次注册 = 更新，会保留用户写入的注释等信息，但是这部分代码暂时没实现
     if (is_documented(get_value("target"))) {
-        relating_document();
-        turn_to_html_mode();
+        sprintf(line, "./book/%s.html", get_value("target"));
+        copy_file(line, CONSOLE);
+        strcpy(g_document, get_value("target"));
         return 0;
     }
 
@@ -916,7 +966,7 @@ int document_register_function(void)
     DEBUG PRINT("is now registering [%s] : [%s]\n", get_value("target"), function);
     fp = fopen(filepath, "wb");
     IF_ERR_RETURN(fp == NULL, "register [%s+%s] failed. Cannot open document file [%s]", src_file, function, filepath);
-    ref = fopen("./book/loading.html", "rb");
+    ref = fopen("./book/function_template.html", "rb");
 
     // 寻找函数定义
     while (fgets(line, LINE_LENGTH, src)) {
@@ -1002,10 +1052,44 @@ int document_register_function(void)
     copy_file(filepath, CONSOLE);
     sprintf(line, "%s\n", g_document);
     if (!is_documented(g_document)) append_file("./book/database", line);
-    relating_document();
-    turn_to_html_mode();
     return 0;
+}
 
+int document_register_other(void)
+{
+    char line[LINE_LENGTH];
+    FILE *ref;
+    FILE *fp;
+    // 如果目标已经被注册过了，再次注册 = 更新，会保留用户写入的注释等信息，但是这部分代码暂时没实现
+    sprintf(line, "./book/%s.html", get_value("target"));
+    if (is_documented(get_value("target"))) {
+        copy_file(line, CONSOLE);
+        strcpy(g_document, get_value("target"));
+        return 0;
+    }
+    ref = fopen("./book/blank_template.html", "rb");
+    fp = fopen(line, "wb");
+    while (fgets(line, LINE_LENGTH, ref)) {
+        WRITE("%s", line);
+        if (!strstr(line, "id=\"")) {
+            continue;
+        } else if (strstr(line, "id=\"title\"")) {
+            WRITE("%s\n", get_value("target"));
+        } else if (strstr(line, "id=\"description\"")) {
+            WRITE("请输入描述信息\n");
+        } else if (strstr(line, "id=\"script\"")) {
+            WRITE("var url_me = \"%s\";\n", get_value("target"));
+        }
+    }
+    fclose(ref);
+    fclose(fp);
+    sprintf(line, "./book/%s.html", get_value("target"));
+    copy_file(line, CONSOLE);
+    // 增加联系也放这里了
+    relating_document();
+    sprintf(line, "%s\n", get_value("target"));
+    if (!is_documented(g_document)) append_file("./book/database", line);
+    return 0;
 }
 
 int document_register(char *value)
@@ -1018,7 +1102,7 @@ int document_register(char *value)
     if (strchr(target, '+')) { // 含有+时，认为它是一个函数注册
         return document_register_function();
     } else {
-        return quit_with_alert("非函数的注册正在施工中");
+        return document_register_other();
     }
     // 其实除了注册一个更新函数，也正在施工中
 }
@@ -1041,5 +1125,7 @@ int main(int argc, char **argv)
         {0},
     };
     goto_sub_command(url, sub_command_list);
+    turn_to_html_mode();
+    apply_superlink();
     return 0;
 }
