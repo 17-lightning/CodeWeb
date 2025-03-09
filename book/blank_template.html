@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <meta charset="utf-8">
+        <title id="title">
+        </title>
+    </head>
+    <body>
+        <h1 id="function">
+        </h1>
+        <pre>
+            <code id="description">
+            </code>
+        </pre>
+        <button type="button" onclick=javascript:begin_edit()>编辑</button>
+
+        <h2>相关</h2>
+        <table border="2" cellspacing="0">
+            <thead>
+                <tr>
+                    <th align="center">
+                        当前元素
+                    </th>
+                    <th id="function">
+                    </th>
+                    <th>
+                        <textarea id="relate" rows="1" cols="1">
+</textarea>
+                    </th>
+                </tr>
+            </thead>
+            <tbody id="relate_table">
+                <tr>
+                    <td align="center">其他</td>
+                    <td id="else">
+
+                    </td>
+                    <td><button type="button" onclick=javascript:attach_ref("add_else")>链接</button></td>
+                </tr>
+            </tbody>
+        </table>
+
+    </body>
+
+    <script id="script">
+        function trans_content(text) {
+            return text
+                .replace(/%/g, "%25")
+                .replace(/\n/g, "%0A")
+                .replace(/&/g, "%26")
+                .replace(/\?/g, "%3F")
+                .replace(/=/g, "%3D");
+        }
+        function begin_edit() {
+            window.location.href="http://localhost:8000/document-show?target=" + url_me + "&edit";
+        }
+        function finish_edit() {
+            window.location.href="http://localhost:8000/document-show?target=" + url_me + "&edit=" + trans_content(document.getElementById("description_area").value);
+        }
+        function begin_code() {
+            window.location.href="http://localhost:8000/document-show?target=" + url_me + "&code";
+        }
+        function finish_code() {
+            window.location.href="http://localhost:8000/document-show?target=" + url_me + "&code=" + trans_content(document.getElementById("coding_area").value);
+        }
+        function edit_para(index) {
+            window.location.href="http://localhost:8000/document-show?target=" + url_me + "&para_" + index + "=" + trans_content(document.getElementById("para_area").value);
+        }
+        function attach_ref(tag) {
+            window.open("http://localhost:8000/document-search?target=" + trans_content(document.getElementById("relate").value) + "&" + tag + "=" + url_me);
+        }
+    </script>
+</html>
