@@ -181,11 +181,12 @@ int is_element(char *line, char *target)
     front = strstr(line, target);
     rear = front + strlen(target);
     if (line != front) {
+        front--;
         if (*front != '(' && *front != ' ' && *front != '*' && *front != ' ' && *front != '\t') {
             return 0;
         }
     }
-    if (*rear != '\0' && *rear != '\n' && *rear != '\r' && *rear != '(' && *rear != ')' && *rear != ';' && *rear != ',' && *rear != ' ' && *rear != '\t') return 0;
+    if (*rear != '\0' && *rear != '\n' && *rear != '\r' && *rear != '(' && *rear != ')' && *rear != ';' && *rear != ',' && *rear != ' ' && *rear != '\t' && *rear != '}') return 0;
     return 1;
 }
 
@@ -512,6 +513,7 @@ int apply_superlink(void)
                         strcpy(g_superlink[g_superlink_number].key, line);
                         sprintf(g_superlink[g_superlink_number].value, "<a href=\"http://localhost:8000/document-show?target=%s\" title=\"%s\" target=\"_blank\">%s</a>", line, description, strchr(line, '+') + 1);
                         WRITE("%s<br>\n", g_superlink[g_superlink_number].value);
+                        DEBUG PRINT("load superlink [%s] : [%s]\n", line, g_superlink[g_superlink_number].value);
                         g_superlink_number++;
                     } else {
                         WRITE("%s\n", line);
@@ -525,20 +527,26 @@ int apply_superlink(void)
     fclose(fp);
     fclose(console);
     copy_file(SWAP_FILE, CONSOLE);
+    // 以上是录入relate区间的superlink，以下是把superlink应用到description和coding中
     console = fopen(CONSOLE, "rb");
     fp = fopen(SWAP_FILE, "wb");
     while (fgets(line, LINE_LENGTH, console)) {
         WRITE("%s", line);
         if (strstr(line, "<code id=\"description\">") || strstr(line, "<code id=\"content\">")) {
             while (fgets(line, LINE_LENGTH, console)) {
-                if (strstr(line, "</code>")) {
+                if (strstr(line, "<textarea id=\"")) {
+                    WRITE("%s", line);
+                    break;
+                } else if (strstr(line, "</code>")) {
                     WRITE("%s", line);
                     break;
                 } else {
-                    DEBUG PRINT("is parsing content[%s]", line);
+                    DDEBUG PRINT("is parsing content[%s]", line);
                     for (i = 0; i < g_superlink_number; i++) {
-                        DEBUG PRINT("translating [%s] -> [%s]\n", g_superlink[i].key, g_superlink[i].value);
-                        str_replace_str(line, strchr(g_superlink[i].key, '+') + 1, g_superlink[i].value);
+                        if (is_element(line, strchr(g_superlink[i].key, '+') + 1)) {
+                            DDEBUG PRINT("apply superlink [%s] -> [%s]\n", g_superlink[i].key, g_superlink[i].value);
+                            str_replace_str(line, strchr(g_superlink[i].key, '+') + 1, g_superlink[i].value);
+                        }
                     }
                     WRITE("%s", line);
                 }
@@ -726,10 +734,9 @@ int paraing_document(void)
     char *value;
     FILE *book;
     FILE *fp;
-    show_all_params();
     for (i = 0; i < 10; i++) {
         sprintf(temp, "para_%d", i);
-        DEBUG PRINT("para_%d is [%s]\n", i, get_value(temp));
+        DDEBUG PRINT("para_%d is [%s]\n", i, get_value(temp));
         if (value = get_value(temp)) {
             DEBUG PRINT("updating param_%d 's description: %s", i, value);
             sprintf(temp, "<td id=\"para_%d\">", i);
@@ -774,21 +781,52 @@ int relating_document(void)
         if (!get_value(relate_list[i])) continue;
         sprintf(line, "./book/%s.html", get_value(relate_list[i]));
         sprintf(temp, "id=\"%s\"", relate_list[i] + 4);
-        DEBUG PRINT("is now relating [%s] = [%s]\n", temp, get_value(relate_list[i]));
+        DEBUG PRINT("is now relating [%s]'[%s] = [%s]\n", g_document, temp, get_value(relate_list[i]));
         book = fopen(line, "rb");
         swap = fopen(SWAP_FILE, "wb");
         IF_ERR_RETURN(book == NULL, "Cannot open target file[%s]", line);
         while (fgets(line, LINE_LENGTH, book)) {
             fprintf(swap, "%s", line);
             if (strstr(line, temp)) {
-                DEBUG PRINT("relating [%s] to [%s:%s]\n", g_document, get_value(relate_list[i]), relate_list[i] + 4);
-                fprintf(swap, "%s\n", g_document);
+                while (fgets(line, LINE_LENGTH, book)) {
+                    if (strstr(line, "</td>")) {
+                        fprintf(swap, "%s\n", g_document);
+                        fprintf(swap, "%s", line);
+                        break;
+                    }
+                    fprintf(swap, "%s", line);
+                }
             }
         }
         fclose(swap);
         fclose(book);
         sprintf(line, "./book/%s.html", get_value(relate_list[i]));
         copy_file(SWAP_FILE, line);
+
+        if (i == 0 || i == 1) { // 连接父子函数时会双向连接
+            sprintf(line, "./book/%s.html", g_document);
+            book = fopen(line, "rb");
+            swap = fopen(SWAP_FILE, "wb");
+            sprintf(temp, "<td id=\"%s\">", relate_list[!i] + 4); // 我是坏逼
+            while (fgets(line, LINE_LENGTH, book)) {
+                fprintf(swap, "%s", line);
+                if (strstr(line, temp)) {
+                    DEBUG PRINT("is now re-relating [%s]'s[%s] = [%s]\n", get_value(relate_list[i]), temp, g_document);
+                    while (fgets(line, LINE_LENGTH, book)) {
+                        if (strstr(line, "</td>")) {
+                            fprintf(swap, "%s\n", get_value(relate_list[i]));
+                            fprintf(swap, "%s", line);
+                            break;
+                        }
+                        fprintf(swap, "%s\n", line);
+                    }
+                }
+            }
+            fclose(swap);
+            fclose(book);
+            sprintf(line, "./book/%s.html", g_document);
+            copy_file(SWAP_FILE, line);
+        }
     }
     
     return 0;
@@ -854,6 +892,13 @@ int document_register_function(void)
     int para_number = 1;
     char *src_file; // 文件名
     char *function; // 函数名
+
+    // 如果函数已经被注册过了，再次注册 = 更新，会保留用户写入的注释等信息
+    if (is_documented(get_value("target"))) {
+        relating_document();
+        turn_to_html_mode();
+        return 0;
+    }
 
     // 调用到这里时已经检查过了，target值必定存在且包含+符号
     function = strchr(get_value("target"), '+');
@@ -995,5 +1040,6 @@ int main(int argc, char **argv)
         {"/document-register", document_register},
         {0},
     };
-    return goto_sub_command(url, sub_command_list);
+    goto_sub_command(url, sub_command_list);
+    return 0;
 }
